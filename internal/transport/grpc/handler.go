@@ -12,59 +12,63 @@ import (
 )
 
 type Handler struct {
-  svc        *task.TaskService
-  userClient userpb.UserServiceClient
-  taskpb.UnimplementedTaskServiceServer
+	svc        *task.TaskService
+	userClient userpb.UserServiceClient
+	taskpb.UnimplementedTaskServiceServer
 }
 
 func NewHandler(svc *task.TaskService, uc userpb.UserServiceClient) *Handler {
-  return &Handler{svc: svc, userClient: uc}
+	return &Handler{svc: svc, userClient: uc}
 }
 
 func (h *Handler) CreateTask(ctx context.Context, req *taskpb.CreateTaskRequest) (*taskpb.CreateTaskResponse, error) {
-  // 1. Проверить пользователя:
-  if _, err := h.userClient.GetUser(ctx, &userpb.User{Id: req.UserId}); err != nil {
-    return nil, fmt.Errorf("user %d not found: %w", req.UserId, err)
-  }
-  // 2. Внутренняя логика:
-  t, err := h.svc.CreateTask(task.Task{UserID: req.UserId, Title: req.Title})
-  if err != nil {
-    return nil, err
-  }
-  // 3. Ответ:
-  return &taskpb.CreateTaskResponse{Task: &taskpb.Task{Id: t.ID, UserId: t.UserID, Title: t.Title, IsDone: t.IsDone}}, nil
-}
-
-func (h *Handler) GetUser(_ context.Context, req *userpb.User) (*userpb.User, error) {
-
-	findUser, err := h.svc.GetUserByID(req.Id)
+	// 1. Проверить пользователя:
+	if _, err := h.userClient.GetUser(ctx, &userpb.User{Id: req.UserId}); err != nil {
+		return nil, fmt.Errorf("user %d not found: %w", req.UserId, err)
+	}
+	// 2. Внутренняя логика:
+	createdTask, err := h.svc.CreateTask(task.Task{UserID: req.UserId, Title: req.Title})
 	if err != nil {
 		return nil, err
 	}
-	return &userpb.User{Id: findUser.ID, Email: findUser.Email}, nil
+	// 3. Ответ:
+	return &taskpb.CreateTaskResponse{Task: &taskpb.Task{Id: createdTask.ID, UserId: createdTask.UserID, Title: createdTask.Title}}, nil
 }
 
-func (h *Handler) UpdateUser(_ context.Context, req *userpb.UpdateUserRequest) (*userpb.UpdateUserResponse, error) {
+func (h *Handler) GetTask(ctx context.Context, req *taskpb.Task) (*taskpb.Task, error) {
 
-	if req.Email == "" {
-		return nil, errors.New("email can't be empty")
+	findTask, err := h.svc.GetTaskByID(req.Id)
+	if err != nil {
+		return nil, err
 	}
-	id := req.Id
-	newUser := user.User{Email: req.Email}
+	return &taskpb.Task{Id: findTask.ID, Title: findTask.Title, UserId: findTask.UserID}, nil
+}
 
-	updatedUser, err := h.svc.UpdateUserByID(id, newUser)
+func (h *Handler) UpdateTask(ctx context.Context, req *taskpb.UpdateTaskRequest) (*taskpb.UpdateTaskResponse, error) {
+
+	if req.Title == "" {
+		return nil, errors.New("title can't be empty")
+	}
+	if _, err := h.userClient.GetUser(ctx, &userpb.User{Id: req.UserId}); err != nil {
+		return nil, fmt.Errorf("user %d not found: %w", req.UserId, err)
+	}
+
+	id := req.Id
+	newTask := task.Task{Title: req.Title, UserID: req.UserId}
+
+	updatedTask, err := h.svc.UpdateTaskByID(id, newTask)
 	if err != nil {
 		return nil, err
 	}
 
-	return &userpb.UpdateUserResponse{User: &userpb.User{Id: updatedUser.ID, Email: updatedUser.Email}}, nil
+	return &taskpb.UpdateTaskResponse{Task: &taskpb.Task{Id: updatedTask.ID, Title: updatedTask.Title, UserId: updatedTask.UserID}}, nil
 }
 
-func (h *Handler) DeleteUser(_ context.Context, req *userpb.User) (*emptypb.Empty, error) {
+func (h *Handler) DeleteTask(ctx context.Context, req *taskpb.Task) (*emptypb.Empty, error) {
 
 	id := req.Id
 
-	err := h.svc.DeleteUserByID(id)
+	err := h.svc.DeleteTaskByID(id)
 	if err != nil {
 		return nil, err
 	}
@@ -72,19 +76,40 @@ func (h *Handler) DeleteUser(_ context.Context, req *userpb.User) (*emptypb.Empt
 	return &emptypb.Empty{}, nil
 }
 
-func (h *Handler) ListUsers(_ context.Context, req *userpb.ListUsersRequest) (*userpb.ListUsersResponse, error) {
+func (h *Handler) ListTasks(ctx context.Context, req *taskpb.ListTasksRequest) (*taskpb.ListTasksResponse, error) {
 
-	users, err := h.svc.GetAllUsers()
+	tasks, err := h.svc.GetAllTasks()
 	if err != nil {
 		return nil, err
 	}
 
-	arrUsers := make([]*userpb.User, 0, len(users))
+	arrTasks := make([]*taskpb.Task, 0, len(tasks))
 
-	for _, val := range users {
-		oneUser := userpb.User{Id: val.ID, Email: val.Email}
-		arrUsers = append(arrUsers, &oneUser)
+	for _, val := range tasks {
+		oneTask := taskpb.Task{Id: val.ID, Title: val.Title, UserId: val.UserID}
+		arrTasks = append(arrTasks, &oneTask)
 	}
 
-	return &userpb.ListUsersResponse{Users: arrUsers}, nil
+	return &taskpb.ListTasksResponse{Tasks: arrTasks}, nil
+}
+
+func (h *Handler) ListTasksByUser(ctx context.Context, req *taskpb.ListTasksByUserRequest) (*taskpb.ListTasksByUserResponse, error) {
+
+	if _, err := h.userClient.GetUser(ctx, &userpb.User{Id: req.UserId}); err != nil {
+		return nil, fmt.Errorf("user %d not found: %w", req.UserId, err)
+	}
+
+	allUserTasks, err := h.svc.GetTasksByUserID(req.UserId)
+	if err != nil {
+		return nil, err
+	}
+
+	userTasks := make([]*taskpb.Task, 0, len(allUserTasks))
+	
+	for _, val := range allUserTasks {
+		oneUserTask := taskpb.Task{Id: val.ID, Title: val.Title, UserId: val.UserID}
+		userTasks = append(userTasks, &oneUserTask)
+	}
+
+	return &taskpb.ListTasksByUserResponse{Tasks: userTasks}, nil
 }
