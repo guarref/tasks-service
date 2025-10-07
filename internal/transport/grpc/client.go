@@ -14,7 +14,6 @@ func NewUserClient(addr string) (userpb.UserServiceClient, *grpc.ClientConn, err
 	if err != nil {
 		return nil, nil, err
 	}
-	defer conn.Close()
 
 	client := userpb.NewUserServiceClient(conn)
 
