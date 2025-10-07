@@ -49,13 +49,21 @@ func (h *Handler) UpdateTask(ctx context.Context, req *taskpb.UpdateTaskRequest)
 	if req.Title == "" {
 		return nil, errors.New("title can't be empty")
 	}
-	if _, err := h.userClient.GetUser(ctx, &userpb.User{Id: req.UserId}); err != nil {
+	findUser, err := h.userClient.GetUser(ctx, &userpb.User{Id: req.UserId})
+	if err != nil {
 		return nil, fmt.Errorf("user %d not found: %w", req.UserId, err)
 	}
 
-	id := req.Id
-	newTask := task.Task{Title: req.Title, UserID: req.UserId}
+	findTask, err := h.svc.GetTaskByID(req.Id)
+	if err != nil {
+		return nil, err
+	}
+	if findUser.Id != findTask.UserID {
+		return nil, fmt.Errorf("user %d does not have task with task_id %d", req.UserId, req.Id)
+	}
 
+	id := req.Id
+	newTask := task.Task{Title: req.Title}
 	updatedTask, err := h.svc.UpdateTaskByID(id, newTask)
 	if err != nil {
 		return nil, err
@@ -105,7 +113,7 @@ func (h *Handler) ListTasksByUser(ctx context.Context, req *taskpb.ListTasksByUs
 	}
 
 	userTasks := make([]*taskpb.Task, 0, len(allUserTasks))
-	
+
 	for _, val := range allUserTasks {
 		oneUserTask := taskpb.Task{Id: val.ID, Title: val.Title, UserId: val.UserID}
 		userTasks = append(userTasks, &oneUserTask)
